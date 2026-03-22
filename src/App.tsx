@@ -19,6 +19,9 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { translations } from './translations';
+import Webcam from 'react-webcam';
+import * as tf from '@tensorflow/tfjs';
+import * as cocossd from '@tensorflow-models/coco-ssd';
 
 type Step = 'welcome' | 'permissions' | 'setup' | 'scanning' | 'processing' | 'results';
 type ReferenceObject = 'A4_PAPER' | 'CREDIT_CARD';
@@ -40,48 +43,75 @@ const App: React.FC = () => {
 
   const toggleLang = () => setLang(lang === 'ar' ? 'en' : 'ar');
 
-  // Camera Logic
+  // NEW DETECTION FEATURES
+  const [mode, setMode] = useState<'manual' | 'auto'>('manual');
+  const [isDetected, setIsDetected] = useState(false);
+  const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [model, setModel] = useState<cocossd.ObjectDetection | null>(null);
+  const webcamRef = useRef<Webcam>(null);
+
+  // Load ML Model
+  useEffect(() => {
+    const loadModel = async () => {
+      try {
+        await tf.ready();
+        const loadedModel = await cocossd.load();
+        setModel(loadedModel);
+        console.log("AI detection model loaded.");
+      } catch (err) {
+        console.error("Model load error:", err);
+      }
+    };
+    if (step === 'scanning') loadModel();
+  }, [step]);
+
+  // Real-time Detection Loop
+  useEffect(() => {
+    let animationId: number;
+    const runDetection = async () => {
+      if (model && webcamRef.current && webcamRef.current.video?.readyState === 4) {
+        const predictions = await model.detect(webcamRef.current.video);
+        // Simplified check: detect anything that could be a limb/person with decent score
+        const found = predictions.some(p => p.score > 0.4); 
+        setIsDetected(found);
+
+        if (found && mode === 'auto' && !capturedImage && step === 'scanning') {
+          handleCaptureAndProcess();
+        }
+      }
+      animationId = requestAnimationFrame(runDetection);
+    };
+    
+    if (model && step === 'scanning') {
+      runDetection();
+    }
+    return () => cancelAnimationFrame(animationId);
+  }, [model, mode, step, capturedImage]);
+
+  // Camera Logic (Replaced by Webcam component but keep cleanup)
   useEffect(() => {
     if (step === 'scanning') {
-      const initCamera = async () => {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: 'environment' }
-          });
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-          }
-        } catch (err) {
-          console.error("Camera error:", err);
-          alert(lang === 'ar' ? "عافاك عطينا الإذن للكاميرا باش نقدروا نعبروا ليك رجلك." : "Please grant camera permissions to use the scanner.");
-          setStep('permissions');
-        }
-      };
-      initCamera();
-
       const scanInterval = setInterval(() => {
-        setScanProgress(prev => {
-          if (prev >= 100) {
-            clearInterval(scanInterval);
-            // Auto Capture and Transition at 100%
-            handleCaptureAndProcess();
-            return 100;
-          }
-          const next = prev + 0.5;
-          if (Math.floor(next / 12.5) > capturedAngles) {
-            setCapturedAngles(Math.floor(next / 12.5));
-          }
-          return next;
-        });
-      }, 50);
+        if (mode === 'manual') { // Progress only in manual or for visual feed
+          setScanProgress(prev => {
+            if (prev >= 100) {
+              clearInterval(scanInterval);
+              return 100;
+            }
+            return prev + 1;
+          });
+        }
+      }, 100);
 
       return () => {
         clearInterval(scanInterval);
-        const stream = videoRef.current?.srcObject as MediaStream;
-        stream?.getTracks().forEach(track => track.stop());
+        if (webcamRef.current?.video?.srcObject) {
+          const stream = webcamRef.current.video.srcObject as MediaStream;
+          stream.getTracks().forEach(track => track.stop());
+        }
       };
     }
-  }, [step, capturedAngles, lang]);
+  }, [step, mode]);
 
   // Processing Simulation
   useEffect(() => {
@@ -102,22 +132,23 @@ const App: React.FC = () => {
   }, [step]);
 
   const handleCaptureAndProcess = async () => {
+    let imageBase64 = "";
+
+    if (webcamRef.current) {
+      const screenshot = webcamRef.current.getScreenshot();
+      if (!screenshot) return;
+      setCapturedImage(screenshot);
+      imageBase64 = screenshot.split(',')[1];
+      
+      // Stop webcam stream immediately
+      const stream = webcamRef.current.video?.srcObject as MediaStream;
+      stream?.getTracks().forEach(track => track.stop());
+    }
+
     setStep('processing');
     setIsAnalyzing(true);
     setError(null);
-
-    // Capture Frame
-    if (videoRef.current) {
-      const canvas = document.createElement('canvas');
-      canvas.width = videoRef.current.videoWidth;
-      canvas.height = videoRef.current.videoHeight;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.drawImage(videoRef.current, 0, 0);
-        const base64Image = canvas.toDataURL('image/jpeg').split(',')[1];
-        await analyzeFoot(base64Image);
-      }
-    }
+    await analyzeFoot(imageBase64);
   };
 
   const analyzeFoot = async (base64Image: string) => {
@@ -359,19 +390,30 @@ const App: React.FC = () => {
             style={{ width: '100vw', height: '100vh', position: 'fixed', top: 0, left: 0, zIndex: 100, background: '#000' }}
           >
             <div className="camera-preview-container" style={{ maxWidth: 'none', height: '100%', borderRadius: 0 }}>
-              <video
-                ref={videoRef}
+              <Webcam
+                ref={webcamRef}
+                screenshotFormat="image/jpeg"
+                videoConstraints={{ facingMode: 'environment' }}
                 className="camera-video"
-                autoPlay
-                playsInline
+                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
               />
 
               <div className="scan-status-overlay">
-                <div className="status-badge">
-                  <span className="permission-status"></span> {t.scanning}
+                <div className="status-badge glass-panel" style={{ background: 'rgba(0,0,0,0.6)' }}>
+                  <span className={`permission-status ${isDetected ? 'active' : ''}`} style={{ background: isDetected ? 'var(--scanning-active)' : 'var(--scanning-error)', boxShadow: isDetected ? '0 0 10px var(--scanning-active)' : '0 0 10px var(--scanning-error)' }}></span> 
+                  {isDetected ? (lang === 'ar' ? 'تم قشع الرجل' : 'FOOT DETECTED') : (lang === 'ar' ? 'قرب رجلك' : 'MOVE CLOSER')}
                 </div>
-                <div className="status-badge" style={{ color: 'var(--primary-glow)' }}>
-                  {capturedAngles}/8 {t.angles}
+                
+                {/* Mode Selector */}
+                <div className="mode-toggle-glass">
+                  <button 
+                    onClick={() => setMode('manual')}
+                    className={mode === 'manual' ? 'active' : ''}
+                  >{lang === 'ar' ? 'يدوي' : 'Manual'}</button>
+                  <button 
+                    onClick={() => setMode('auto')}
+                    className={mode === 'auto' ? 'active' : ''}
+                  >{lang === 'ar' ? 'تلقائي' : 'Auto'}</button>
                 </div>
               </div>
 
@@ -379,10 +421,16 @@ const App: React.FC = () => {
                 <svg className="ar-scan-circle">
                   <circle cx="125" cy="125" r="110" style={{ strokeDashoffset: 785 - (785 * scanProgress / 100) }} />
                 </svg>
-                {scanProgress < 20 && (
-                  <div className="animate-pulse-ui" style={{ position: 'absolute', bottom: '-40px', color: '#fff', fontSize: '0.8rem' }}>
-                    {t.moveSlowly}
-                  </div>
+                <div className="animate-pulse-ui" style={{ position: 'absolute', bottom: '-40px', color: '#fff', fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
+                  {mode === 'auto' ? (lang === 'ar' ? 'غادي نصورو تلقائيا غير نقادوه' : 'Auto-capturing once aligned...') : (lang === 'ar' ? 'ورك باش تصور' : 'Tap button to capture')}
+                </div>
+              </div>
+
+              <div style={{ position: 'absolute', bottom: '120px', left: '0', width: '100%', display: 'flex', justifyContent: 'center' }}>
+                {mode === 'manual' && !capturedImage && (
+                  <button className="neon-btn capture-btn" onClick={handleCaptureAndProcess}>
+                    <Camera size={24} /> {lang === 'ar' ? 'صور دابا' : 'Capture Now'}
+                  </button>
                 )}
               </div>
 
@@ -393,7 +441,7 @@ const App: React.FC = () => {
                 </div>
                 <div style={{ textAlign: 'center' }}>
                   <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.5)', marginBottom: '5px' }}>{t.detected}</div>
-                  <div style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--primary-glow)' }}>YES</div>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 800, color: isDetected ? 'var(--primary-glow)' : 'var(--scanning-error)' }}>{isDetected ? 'YES' : 'NO'}</div>
                 </div>
               </div>
             </div>
