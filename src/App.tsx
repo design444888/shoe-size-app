@@ -146,7 +146,7 @@ const App: React.FC = () => {
               },
               { 
                 type: "text", 
-                text: "Analyze this image of a human foot placed next to or on an A4 sheet of paper. Use the A4 paper (210mm x 297mm) as a scale reference. Calculate the foot length from heel to the longest toe. Based on the length in CM, provide the shoe size for EU, US, and UK standards. Respond ONLY with a valid JSON object in this format: {\"eu\": \"XX\", \"us\": \"X.X\", \"uk\": \"X.X\", \"cm\": \"XX.X\", \"note\": \"Short professional tip about the fit\"}. Do not include any text outside the JSON." 
+                text: "I am providing an image for foot size measurement. Validation: First, check if a human foot and an A4 paper are clearly visible. If not, return {\"error\": \"Invalid image, please retake\"}. Measurement: Use the A4 paper as a 210x297mm reference. Measure the foot length. Output: Return ONLY a JSON object: {\"eu\": 42, \"us\": 9, \"uk\": 8, \"cm\": 26.5, \"confidence\": \"high/low\"}. No conversational text, only JSON." 
               }
             ]
           }]
@@ -159,6 +159,9 @@ const App: React.FC = () => {
         const jsonMatch = content.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           const parsed = JSON.parse(jsonMatch[0]);
+          if (parsed.error) {
+             throw new Error(parsed.error);
+          }
           setAnalysisResult(parsed);
           setStep('results');
         } else {
@@ -434,8 +437,14 @@ const App: React.FC = () => {
             className="mobile-hero"
             style={{ paddingBottom: '100px' }}
           >
-            <div className="status-badge" style={{ marginBottom: '20px', background: error ? 'rgba(255, 68, 68, 0.1)' : 'rgba(0, 255, 136, 0.1)', color: error ? '#ff4444' : '#00ff88', margin: '0 auto' }}>
-              {error ? <AlertCircle size={14} /> : <CheckCircle2 size={14} />} {error ? (lang === 'ar' ? 'خطأ في التحليل' : 'ANALYSIS ERROR') : 'SCAN VERIFIED'}
+            <div className="status-badge" style={{ marginBottom: '20px', background: error ? 'rgba(255, 68, 68, 0.1)' : 'rgba(0, 255, 136, 0.1)', color: error ? '#ff4444' : '#00ff88', margin: '0 auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {error ? <AlertCircle size={14} /> : <CheckCircle2 size={14} />} 
+              {error ? (lang === 'ar' ? 'خطأ في التحليل' : 'ANALYSIS ERROR') : 'SCAN VERIFIED'}
+              {analysisResult?.confidence && !error && (
+                <span className="confidence-tag" style={{ marginLeft: '8px', fontSize: '0.6rem', opacity: 0.8, background: 'rgba(255,255,255,0.1)', padding: '2px 6px', borderRadius: '4px' }}>
+                  {analysisResult.confidence.toUpperCase()}
+                </span>
+              )}
             </div>
             {error && <p style={{ color: 'var(--scanning-error)', fontSize: '0.8rem', marginTop: '10px' }}>{error}</p>}
             <h2 style={{ fontSize: '2.5rem', margin: '20px 0' }}>{t.results.split(' ')[0]} <span className="gradient-text">{t.results.split(' ').slice(1).join(' ')}</span></h2>
