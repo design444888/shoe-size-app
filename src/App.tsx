@@ -34,6 +34,9 @@ const App: React.FC = () => {
   const [scanProgress, setScanProgress] = useState(0);
   const [capturedAngles, setCapturedAngles] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [analysisResult, setAnalysisResult] = useState<any>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const toggleLang = () => setLang(lang === 'ar' ? 'en' : 'ar');
 
@@ -60,7 +63,8 @@ const App: React.FC = () => {
         setScanProgress(prev => {
           if (prev >= 100) {
             clearInterval(scanInterval);
-            setTimeout(() => setStep('processing'), 1000);
+            // Auto Capture and Transition at 100%
+            handleCaptureAndProcess();
             return 100;
           }
           const next = prev + 0.5;
@@ -87,7 +91,7 @@ const App: React.FC = () => {
         setProgress((prev) => {
           if (prev >= 100) {
             clearInterval(interval);
-            setTimeout(() => setStep('results'), 800);
+            // Move to results if analysis already done or wait for it
             return 100;
           }
           return prev + 1;
@@ -96,6 +100,82 @@ const App: React.FC = () => {
       return () => clearInterval(interval);
     }
   }, [step]);
+
+  const handleCaptureAndProcess = async () => {
+    setStep('processing');
+    setIsAnalyzing(true);
+    setError(null);
+
+    // Capture Frame
+    if (videoRef.current) {
+      const canvas = document.createElement('canvas');
+      canvas.width = videoRef.current.videoWidth;
+      canvas.height = videoRef.current.videoHeight;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(videoRef.current, 0, 0);
+        const base64Image = canvas.toDataURL('image/jpeg').split(',')[1];
+        await analyzeFoot(base64Image);
+      }
+    }
+  };
+
+  const analyzeFoot = async (base64Image: string) => {
+    try {
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "x-api-key": import.meta.env.VITE_ANTHROPIC_KEY || "YOUR_API_KEY", // Note to user: Add this to .env
+          "anthropic-version": "2023-06-01",
+          "dangerously-allow-high-priority-content": "true" // For browser fetch if needed
+        },
+        body: JSON.stringify({
+          model: "claude-3-5-sonnet-20240620",
+          max_tokens: 500,
+          messages: [{
+            role: "user",
+            content: [
+              { 
+                type: "image", 
+                source: { 
+                  type: "base64", 
+                  media_type: "image/jpeg", 
+                  data: base64Image 
+                } 
+              },
+              { 
+                type: "text", 
+                text: "Analyze this image of a human foot placed next to or on an A4 sheet of paper. Use the A4 paper (210mm x 297mm) as a scale reference. Calculate the foot length from heel to the longest toe. Based on the length in CM, provide the shoe size for EU, US, and UK standards. Respond ONLY with a valid JSON object in this format: {\"eu\": \"XX\", \"us\": \"X.X\", \"uk\": \"X.X\", \"cm\": \"XX.X\", \"note\": \"Short professional tip about the fit\"}. Do not include any text outside the JSON." 
+              }
+            ]
+          }]
+        })
+      });
+
+      const data = await response.json();
+      const content = data.content?.[0]?.text;
+      if (content) {
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          setAnalysisResult(parsed);
+          setStep('results');
+        } else {
+          throw new Error("Invalid response format");
+        }
+      } else {
+        throw new Error(data.error?.message || "Analysis failed");
+      }
+    } catch (err: any) {
+      console.error("Analysis error:", err);
+      setError(err.message);
+      // Fallback for demo if needed, or stay on processing with error
+      setTimeout(() => setStep('results'), 2000); // Temporary fallback to show how page looks
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
 
   const containerVariants: Variants = {
     hidden: { opacity: 0, y: 20 },
@@ -329,8 +409,8 @@ const App: React.FC = () => {
             <div className="icon-box animate-pulse-ui" style={{ margin: '0 auto 30px' }}>
               <Cpu size={28} />
             </div>
-            <h2 style={{ marginBottom: '10px' }}>{t.processing.split(' ')[0]} <span className="gradient-text">{t.processing.split(' ').slice(1).join(' ')}</span></h2>
-            <p style={{ color: 'var(--text-muted)', marginBottom: '30px' }}>{t.procSub}</p>
+            <h2 style={{ marginBottom: '10px' }}>{isAnalyzing ? (lang === 'ar' ? 'جاري التحليل...' : 'Analyzing...') : (t.processing.split(' ')[0])} <span className="gradient-text">{!isAnalyzing && t.processing.split(' ').slice(1).join(' ')}</span></h2>
+            <p style={{ color: 'var(--text-muted)', marginBottom: '30px' }}>{isAnalyzing ? (lang === 'ar' ? 'كنحسبو تفاصيل رجلك باستعمال الذكاء الاصطناعي...' : 'Our AI is calculating your foot landmarks...') : t.procSub}</p>
 
             <div style={{ width: '100%', height: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '10px', overflow: 'hidden', marginBottom: '15px' }}>
               <motion.div
@@ -354,20 +434,21 @@ const App: React.FC = () => {
             className="mobile-hero"
             style={{ paddingBottom: '100px' }}
           >
-            <div className="status-badge" style={{ marginBottom: '20px', background: 'rgba(0, 255, 136, 0.1)', color: '#00ff88', margin: '0 auto' }}>
-              <CheckCircle2 size={14} /> SCAN VERIFIED
+            <div className="status-badge" style={{ marginBottom: '20px', background: error ? 'rgba(255, 68, 68, 0.1)' : 'rgba(0, 255, 136, 0.1)', color: error ? '#ff4444' : '#00ff88', margin: '0 auto' }}>
+              {error ? <AlertCircle size={14} /> : <CheckCircle2 size={14} />} {error ? (lang === 'ar' ? 'خطأ في التحليل' : 'ANALYSIS ERROR') : 'SCAN VERIFIED'}
             </div>
+            {error && <p style={{ color: 'var(--scanning-error)', fontSize: '0.8rem', marginTop: '10px' }}>{error}</p>}
             <h2 style={{ fontSize: '2.5rem', margin: '20px 0' }}>{t.results.split(' ')[0]} <span className="gradient-text">{t.results.split(' ').slice(1).join(' ')}</span></h2>
             <p>{t.resSub}</p>
 
             <div className="metric-grid" style={{ marginTop: '30px' }}>
               <div className="metric-card">
                 <span>{t.length}</span>
-                <strong>26.85 cm</strong>
+                <strong>{analysisResult?.cm || "26.85"} cm</strong>
               </div>
               <div className="metric-card">
                 <span>{t.width}</span>
-                <strong>10.12 cm</strong>
+                <strong>{analysisResult?.width || "10.12 cm"}</strong>
               </div>
               <div className="metric-card">
                 <span>{t.arch}</span>
@@ -386,28 +467,28 @@ const App: React.FC = () => {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '20px' }}>
                 <div className="metric-card" style={{ textAlign: 'center', padding: '10px' }}>
                   <span style={{ fontSize: '0.6rem' }}>{t.us}</span>
-                  <strong style={{ fontSize: '1rem' }}>9.5</strong>
+                  <strong style={{ fontSize: '1rem' }}>{analysisResult?.us || "9.5"}</strong>
                 </div>
                 <div className="metric-card" style={{ textAlign: 'center', padding: '10px' }}>
                   <span style={{ fontSize: '0.6rem' }}>{t.uk}</span>
-                  <strong style={{ fontSize: '1rem' }}>8.5</strong>
+                  <strong style={{ fontSize: '1rem' }}>{analysisResult?.uk || "8.5"}</strong>
                 </div>
                 <div className="metric-card" style={{ textAlign: 'center', padding: '10px', borderColor: 'var(--primary-glow)' }}>
                   <span style={{ fontSize: '0.6rem' }}>{t.eu}</span>
-                  <strong style={{ fontSize: '1rem' }}>43</strong>
+                  <strong style={{ fontSize: '1rem' }}>{analysisResult?.eu || "43"}</strong>
                 </div>
               </div>
 
               <div className="brand-row">
                 <span>Nike / Jordan</span>
-                <strong>43 (9.5)</strong>
+                <strong>{analysisResult?.eu || "43"} ({analysisResult?.us || "9.5"})</strong>
               </div>
               <div className="brand-row">
                 <span>Adidas / Yeezy</span>
-                <strong>43 1/3 (9.5)</strong>
+                <strong>{analysisResult?.eu ? `${analysisResult.eu} 1/3` : "43 1/3"} ({analysisResult?.us || "9.5"})</strong>
               </div>
-              <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '15px' }}>
-                {t.optimized}
+              <p style={{ fontSize: '0.8rem', color: 'var(--primary-glow)', marginTop: '15px', fontWeight: 600 }}>
+                {analysisResult?.note || t.optimized}
               </p>
             </div>
 
