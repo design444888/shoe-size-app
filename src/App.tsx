@@ -9,6 +9,7 @@ import {
   FileText,
   CreditCard,
   ArrowRight,
+  ArrowLeft,
   RotateCcw,
   CheckCircle2,
   ShoppingBag,
@@ -203,9 +204,14 @@ const App: React.FC = () => {
               </div>
             </div>
 
-            <button className="neon-btn" style={{ width: '100%', justifyContent: 'center' }} onClick={() => setStep('setup')}>
-              {t.agree}
-            </button>
+            <div className="btn-group">
+              <button className="neon-btn" style={{ justifyContent: 'center' }} onClick={() => setStep('setup')}>
+                {t.agree}
+              </button>
+              <button className="outline-btn" style={{ justifyContent: 'center', gap: '8px' }} onClick={() => setStep('welcome')}>
+                <ArrowLeft size={18} className="icon-flip" /> {t.backBtn}
+              </button>
+            </div>
           </motion.div>
         )}
 
@@ -250,9 +256,14 @@ const App: React.FC = () => {
               <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{t.tip}</p>
             </div>
 
-            <button className="neon-btn" style={{ marginTop: '50px', width: '100%', justifyContent: 'center' }} onClick={() => setStep('scanning')}>
-              {t.launchBtn} <Scan size={20} />
-            </button>
+            <div className="btn-group">
+              <button className="neon-btn" style={{ justifyContent: 'center' }} onClick={() => setStep('scanning')}>
+                {t.launchBtn} <Scan size={20} />
+              </button>
+              <button className="outline-btn" style={{ justifyContent: 'center', gap: '8px' }} onClick={() => setStep('permissions')}>
+                <ArrowLeft size={18} className="icon-flip" /> {t.backBtn}
+              </button>
+            </div>
           </motion.div>
         )}
 

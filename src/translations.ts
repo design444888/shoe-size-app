@@ -52,6 +52,7 @@ export const translations = {
     optimized: '*النتائج مضبوطة على حساب الأحذية الرياضية.',
     exportBtn: 'تحميل التقرير PDF',
     newScan: 'عبار جديد',
+    backBtn: 'رجوع',
     mesh: 'شبكة الـ 3D',
     active: 'نشطة'
   },
@@ -108,6 +109,7 @@ export const translations = {
     optimized: '*Values optimized for performance footwear.',
     exportBtn: 'Export PDF Report',
     newScan: 'New Scan',
+    backBtn: 'Back',
     mesh: '3D Topological Mesh',
     active: 'Active'
   }
