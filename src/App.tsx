@@ -35,8 +35,6 @@ const App: React.FC = () => {
   const [progress, setProgress] = useState(0);
   const [refObject, setRefObject] = useState<ReferenceObject>('A4_PAPER');
   const [scanProgress, setScanProgress] = useState(0);
-  const [capturedAngles, setCapturedAngles] = useState(0);
-  const videoRef = useRef<HTMLVideoElement>(null);
   const [analysisResult, setAnalysisResult] = useState<any>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -72,7 +70,7 @@ const App: React.FC = () => {
       if (model && webcamRef.current && webcamRef.current.video?.readyState === 4) {
         const predictions = await model.detect(webcamRef.current.video);
         // Simplified check: detect anything that could be a limb/person with decent score
-        const found = predictions.some(p => p.score > 0.4); 
+        const found = predictions.some(p => p.score > 0.4);
         setIsDetected(found);
 
         if (found && mode === 'auto' && !capturedImage && step === 'scanning') {
@@ -81,7 +79,7 @@ const App: React.FC = () => {
       }
       animationId = requestAnimationFrame(runDetection);
     };
-    
+
     if (model && step === 'scanning') {
       runDetection();
     }
@@ -135,11 +133,11 @@ const App: React.FC = () => {
     let imageBase64 = "";
 
     if (webcamRef.current) {
-      const screenshot = webcamRef.current.getScreenshot();
+      const screenshot = webcamRef.current.getScreenshot({ width: 1920, height: 1080 });
       if (!screenshot) return;
       setCapturedImage(screenshot);
       imageBase64 = screenshot.split(',')[1];
-      
+
       // Stop webcam stream immediately
       const stream = webcamRef.current.video?.srcObject as MediaStream;
       stream?.getTracks().forEach(track => track.stop());
@@ -155,7 +153,7 @@ const App: React.FC = () => {
     try {
       const response = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
           "x-api-key": import.meta.env.VITE_ANTHROPIC_KEY || "YOUR_API_KEY", // Note to user: Add this to .env
           "anthropic-version": "2023-06-01",
@@ -167,17 +165,17 @@ const App: React.FC = () => {
           messages: [{
             role: "user",
             content: [
-              { 
-                type: "image", 
-                source: { 
-                  type: "base64", 
-                  media_type: "image/jpeg", 
-                  data: base64Image 
-                } 
+              {
+                type: "image",
+                source: {
+                  type: "base64",
+                  media_type: "image/jpeg",
+                  data: base64Image
+                }
               },
-              { 
-                type: "text", 
-                text: "I am providing an image for foot size measurement. Validation: First, check if a human foot and an A4 paper are clearly visible. If not, return {\"error\": \"Invalid image, please retake\"}. Measurement: Use the A4 paper as a 210x297mm reference. Measure the foot length. Output: Return ONLY a JSON object: {\"eu\": 42, \"us\": 9, \"uk\": 8, \"cm\": 26.5, \"confidence\": \"high/low\"}. No conversational text, only JSON." 
+              {
+                type: "text",
+                text: "ACT AS A PRECISE MEASUREMENT TOOL. Identify the A4 paper in the image. I know its dimensions are exactly 21.0cm x 29.7cm. Use the paper's boundary to establish a 'pixel-to-cm' ratio. Measure the foot from the very back of the heel to the tip of the longest toe. If the foot or paper is not clearly visible or cut off, return an error JSON. Output ONLY a JSON object: {\"eu\": 42, \"us\": 9, \"uk\": 8, \"cm\": 26.5, \"width\": \"10.2 cm\", \"match_confidence\": \"90%\"}. No conversational text, only JSON."
               }
             ]
           }]
@@ -191,7 +189,7 @@ const App: React.FC = () => {
         if (jsonMatch) {
           const parsed = JSON.parse(jsonMatch[0]);
           if (parsed.error) {
-             throw new Error(parsed.error);
+            throw new Error(parsed.error);
           }
           setAnalysisResult(parsed);
           setStep('results');
@@ -223,8 +221,8 @@ const App: React.FC = () => {
       <div className="bg-blob blob-2"></div>
 
       {/* Language Switcher - Floating Design */}
-      <button 
-        onClick={toggleLang} 
+      <button
+        onClick={toggleLang}
         className="lang-switcher-glass"
       >
         <div className="lang-icon">
@@ -252,7 +250,7 @@ const App: React.FC = () => {
               {t.welcome.split('3D')[1]}
             </h1>
             <p>{t.subWelcome}</p>
-            
+
             <div className="btn-group">
               <button className="neon-btn" onClick={() => setStep('permissions')}>
                 {t.startBtn} <ArrowRight size={20} className="icon-flip" />
@@ -400,17 +398,17 @@ const App: React.FC = () => {
 
               <div className="scan-status-overlay">
                 <div className="status-badge glass-panel" style={{ background: 'rgba(0,0,0,0.6)' }}>
-                  <span className={`permission-status ${isDetected ? 'active' : ''}`} style={{ background: isDetected ? 'var(--scanning-active)' : 'var(--scanning-error)', boxShadow: isDetected ? '0 0 10px var(--scanning-active)' : '0 0 10px var(--scanning-error)' }}></span> 
+                  <span className={`permission-status ${isDetected ? 'active' : ''}`} style={{ background: isDetected ? 'var(--scanning-active)' : 'var(--scanning-error)', boxShadow: isDetected ? '0 0 10px var(--scanning-active)' : '0 0 10px var(--scanning-error)' }}></span>
                   {isDetected ? (lang === 'ar' ? 'تم قشع الرجل' : 'FOOT DETECTED') : (lang === 'ar' ? 'قرب رجلك' : 'MOVE CLOSER')}
                 </div>
-                
+
                 {/* Mode Selector */}
                 <div className="mode-toggle-glass">
-                  <button 
+                  <button
                     onClick={() => setMode('manual')}
                     className={mode === 'manual' ? 'active' : ''}
                   >{lang === 'ar' ? 'يدوي' : 'Manual'}</button>
-                  <button 
+                  <button
                     onClick={() => setMode('auto')}
                     className={mode === 'auto' ? 'active' : ''}
                   >{lang === 'ar' ? 'تلقائي' : 'Auto'}</button>
@@ -486,11 +484,11 @@ const App: React.FC = () => {
             style={{ paddingBottom: '100px' }}
           >
             <div className="status-badge" style={{ marginBottom: '20px', background: error ? 'rgba(255, 68, 68, 0.1)' : 'rgba(0, 255, 136, 0.1)', color: error ? '#ff4444' : '#00ff88', margin: '0 auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              {error ? <AlertCircle size={14} /> : <CheckCircle2 size={14} />} 
+              {error ? <AlertCircle size={14} /> : <CheckCircle2 size={14} />}
               {error ? (lang === 'ar' ? 'خطأ في التحليل' : 'ANALYSIS ERROR') : 'SCAN VERIFIED'}
-              {analysisResult?.confidence && !error && (
+              {(analysisResult?.match_confidence || analysisResult?.confidence) && !error && (
                 <span className="confidence-tag" style={{ marginLeft: '8px', fontSize: '0.6rem', opacity: 0.8, background: 'rgba(255,255,255,0.1)', padding: '2px 6px', borderRadius: '4px' }}>
-                  {analysisResult.confidence.toUpperCase()}
+                  {(analysisResult.match_confidence || analysisResult.confidence).toUpperCase()}
                 </span>
               )}
             </div>
